@@ -9,6 +9,7 @@ use crate::parser::Parser;
 use crate::vm::{Value, Vm};
 
 mod compiler;
+mod error;
 mod lexer;
 mod parser;
 mod vm;
