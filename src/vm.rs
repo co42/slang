@@ -71,6 +71,11 @@ pub enum Ins {
     Lte,
     Gt,
     Gte,
+    // Variables
+    Store(Option<u32>),
+    Load(u32),
+    Enter,
+    Leave,
 }
 
 #[derive(Clone)]
@@ -184,6 +189,30 @@ impl Program {
         self.ins.push(Ins::Gte);
         self
     }
+
+    #[allow(unused)]
+    pub fn store(mut self, value: Option<u32>) -> Self {
+        self.ins.push(Ins::Store(value));
+        self
+    }
+
+    #[allow(unused)]
+    pub fn load(mut self, index: u32) -> Self {
+        self.ins.push(Ins::Load(index));
+        self
+    }
+
+    #[allow(unused)]
+    pub fn enter(mut self) -> Self {
+        self.ins.push(Ins::Enter);
+        self
+    }
+
+    #[allow(unused)]
+    pub fn leave(mut self) -> Self {
+        self.ins.push(Ins::Leave);
+        self
+    }
 }
 
 impl fmt::Debug for Program {
@@ -203,6 +232,8 @@ pub struct Vm {
     program: Program,
     stack: Vec<Value>,
     ip: usize,
+    variables: Vec<Value>,
+    frames: Vec<usize>,
 }
 
 impl Vm {
@@ -211,6 +242,8 @@ impl Vm {
             program: compiler.program,
             stack: Vec::new(),
             ip: 0,
+            variables: Vec::new(),
+            frames: vec![0],
         }
     }
 
@@ -357,6 +390,31 @@ impl Vm {
                     let result = Value::Bool(lhs >= rhs);
                     self.stack.push(result);
                 }
+                Ins::Store(index) => {
+                    let value = self.stack.pop().context("Invalid stack pop")?;
+                    match index {
+                        Some(index) => {
+                            self.variables[*index as usize] = value.clone();
+                        }
+                        None => {
+                            self.variables.push(value.clone());
+                        }
+                    }
+                }
+                Ins::Load(index) => {
+                    let value = self
+                        .variables
+                        .get(*index as usize)
+                        .context("Invalid variable index")?;
+                    self.stack.push(value.clone());
+                }
+                Ins::Enter => {
+                    self.frames.push(self.stack.len());
+                }
+                Ins::Leave => {
+                    let frame = self.frames.pop().context("Invalid frame pointer")?;
+                    self.variables.truncate(frame);
+                }
             }
             self.ip += 1;
         }
@@ -367,6 +425,11 @@ impl Vm {
 mod tests {
     use super::Value::*;
     use super::*;
+
+    #[test]
+    fn foo() {
+        println!("{}", std::mem::size_of_val(&Ins::Exit));
+    }
 
     #[test]
     fn test_exit() {
@@ -526,5 +589,25 @@ mod tests {
         let program = Program::new().push(41).push(42).gte().exit();
         let exit_value = Vm::new(Compiler::new(program)).interpret();
         assert_eq!(exit_value.unwrap(), Bool(false));
+    }
+
+    #[test]
+    fn test_store_load() {
+        let program = Program::new()
+            .push(21)
+            .store(None)
+            .push(42)
+            .store(None)
+            .load(1)
+            .exit();
+        let exit_value = Vm::new(Compiler::new(program)).interpret();
+        assert_eq!(exit_value.unwrap(), Int(42));
+    }
+
+    #[test]
+    fn test_enter_leave() {
+        let program = Program::new().push(42).enter().push(21).leave().exit();
+        let exit_value = Vm::new(Compiler::new(program)).interpret();
+        assert_eq!(exit_value.unwrap(), Int(42));
     }
 }

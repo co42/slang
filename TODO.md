@@ -1,5 +1,43 @@
 # Version
 
+## v0.7 Control flow
+
+- [ ] Control flow
+  - [ ] If / Else
+  - [ ] While
+
+```slang
+if 1 < 2 {
+  1 + 2
+} else {
+  3 + 4
+}
+```
+
+## v0.6 Advent of Code day 1
+
+```slang
+{
+  input = "1   2\n3   4\n";
+  values = input
+    .split("\n")
+    .filter(line -> line != "")
+    .map(line ->
+      line
+        .split("   ")
+        .map(value -> value.parse_int())
+    )
+    .unzip()
+  ls = values.0.sort();
+  rs = values.1.sort();
+  print(
+    zip(ls, rs)
+      .map(r -> abs(r.0 - r.1))
+      .sum()
+  )
+}
+```
+
 ## v0.5 Arrays, Strings and Built-in functions
 
 - [ ] New types
@@ -18,32 +56,31 @@ a + " world"
 
 ## v0.4 Functions
 
-- [ ] Block
 - [ ] Functions
   - [ ] Define
   - [ ] Call
-- [ ] Variables
-  - [ ] Assign
-  - [ ] Use
-- [ ] Scope
 
 ```slang
-add = fn a b -> a + b
+add = a b -> a + b
+add 1 2
 ```
 
-## v0.3 Control flow
+## v0.3 Variables and Scope
 
-- [ ] Control flow
-  - [ ] If / Else
-  - [ ] While
+- [x] Block / Scope
+- [x] Variable / Assign
+  - [x] Lexer / Parser
+  - [x] Compiler / VM
 
 ```slang
-if 1 < 2 {
-  1 + 2
-} else {
-  3 + 4
+a = {
+  a = 1;
+  b = 2;
+  a + b
 }
+a + 3
 ```
+
 
 ## v0.2 Boolean expressions
 

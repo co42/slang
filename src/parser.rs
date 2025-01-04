@@ -25,6 +25,9 @@ pub enum Node {
     Lte(Box<Node>, Box<Node>),
     Gt(Box<Node>, Box<Node>),
     Gte(Box<Node>, Box<Node>),
+    Assign(String, Box<Node>),
+    Var(String),
+    Block(Vec<Node>),
 }
 
 impl Node {
@@ -122,6 +125,23 @@ impl Node {
                 let rhs_count = rhs.fmt_ident(f, ident + 2)?;
                 Ok(1 + lhs_count + rhs_count)
             }
+            Node::Assign(name, node) => {
+                writeln!(f, "{:>ident$}{name}=", "")?;
+                let node_count = node.fmt_ident(f, ident + 2)?;
+                Ok(1 + node_count)
+            }
+            Node::Var(name) => {
+                writeln!(f, "{:ident$}{name}", "")?;
+                Ok(1)
+            }
+            Node::Block(node) => {
+                writeln!(f, "{:>ident$}{{}}", "")?;
+                let mut node_count = 0;
+                for node in node {
+                    node_count += node.fmt_ident(f, ident + 2)?;
+                }
+                Ok(1 + node_count)
+            }
         }
     }
 }
@@ -162,8 +182,8 @@ pub enum Prefix {
 impl Prefix {
     fn binding_power(&self) -> u8 {
         match self {
-            Self::Plus | Self::Minus => 6,
-            Self::Not => 9,
+            Self::Plus | Self::Minus => 9,
+            Self::Not => 12,
         }
     }
 }
@@ -183,15 +203,17 @@ pub enum Infix {
     Lte,
     Gt,
     Gte,
+    Assign,
 }
 
 impl Infix {
     fn binding_power(&self) -> (u8, u8) {
         match self {
-            Infix::And | Infix::Or | Infix::Xor => (1, 2),
-            Infix::Eq | Infix::Ne | Infix::Lt | Infix::Lte | Infix::Gt | Infix::Gte => (3, 4),
-            Infix::Add | Infix::Sub => (5, 6),
-            Infix::Mul | Infix::Div => (7, 8),
+            Infix::Assign => (1, 2),
+            Infix::And | Infix::Or | Infix::Xor => (3, 4),
+            Infix::Eq | Infix::Ne | Infix::Lt | Infix::Lte | Infix::Gt | Infix::Gte => (5, 6),
+            Infix::Add | Infix::Sub => (7, 8),
+            Infix::Mul | Infix::Div => (10, 11),
         }
     }
 }
@@ -235,10 +257,29 @@ impl Parser {
                 }
                 lhs
             }
-            Token::Op(Op::Add) => {
-                let rhs = Self::expr(lexer, Prefix::Plus.binding_power())?;
-                rhs
+            Token::OpenBrace => {
+                let mut lhs = Vec::new();
+                loop {
+                    let node = Self::expr(lexer, 0)?;
+                    lhs.push(node);
+                    match lexer.next() {
+                        Token::CloseBrace => {
+                            break;
+                        }
+                        Token::Op(Op::Semi) => {}
+                        _ => {
+                            let token = &lexer.tokens[lexer.index - 1];
+                            bail!(error(
+                                &lexer.input,
+                                token,
+                                format!("Expected '}}' got {}", token.token),
+                            ));
+                        }
+                    }
+                }
+                Node::Block(lhs)
             }
+            Token::Op(Op::Add) => Self::expr(lexer, Prefix::Plus.binding_power())?,
             Token::Op(Op::Sub) => {
                 let rhs = Self::expr(lexer, Prefix::Minus.binding_power())?;
                 Node::Negate(Box::new(rhs))
@@ -247,6 +288,7 @@ impl Parser {
                 let rhs = Self::expr(lexer, Prefix::Not.binding_power())?;
                 Node::Not(Box::new(rhs))
             }
+            Token::Ident(name) => Node::Var(name.clone()),
             _ => {
                 let token = &lexer.tokens[lexer.index - 1];
                 bail!(error(
@@ -259,7 +301,7 @@ impl Parser {
 
         loop {
             let infix = match lexer.peek() {
-                Token::Eof | Token::CloseParen => break,
+                Token::Eof | Token::Op(Op::Semi) | Token::CloseParen | Token::CloseBrace => break,
                 Token::Op(Op::Add) => Infix::Add,
                 Token::Op(Op::Sub) => Infix::Sub,
                 Token::Op(Op::Mul) => Infix::Mul,
@@ -273,6 +315,7 @@ impl Parser {
                 Token::Op(Op::Lte) => Infix::Lte,
                 Token::Op(Op::Gt) => Infix::Gt,
                 Token::Op(Op::Gte) => Infix::Gte,
+                Token::Op(Op::Assign) => Infix::Assign,
                 kind => bail!(error(
                     &lexer.input,
                     &lexer.tokens[lexer.index],
@@ -302,6 +345,13 @@ impl Parser {
                 Infix::Lte => Node::Lte(Box::new(lhs), Box::new(rhs)),
                 Infix::Gt => Node::Gt(Box::new(lhs), Box::new(rhs)),
                 Infix::Gte => Node::Gte(Box::new(lhs), Box::new(rhs)),
+                Infix::Assign => {
+                    let name = match lhs {
+                        Node::Var(name) => name,
+                        _ => bail!("Expected variable"),
+                    };
+                    Node::Assign(name, Box::new(rhs))
+                }
             };
         }
 
@@ -419,6 +469,44 @@ and
   /
     4
     2
+"#
+            .trim()
+        );
+    }
+
+    #[test]
+    fn test_assign() {
+        let lexer = Lexer::lex("a = 1 + 2").unwrap();
+        let parser = Parser::parse(lexer).unwrap();
+        let result = format!("{:?}", parser.root);
+        print!("{result}");
+        assert_eq!(
+            result.trim(),
+            r#"
+a=
+  +
+    1
+    2
+"#
+            .trim()
+        );
+    }
+
+    #[test]
+    fn test_block() {
+        let lexer = Lexer::lex("2 * {1 + 2}").unwrap();
+        let parser = Parser::parse(lexer).unwrap();
+        let result = format!("{:?}", parser.root);
+        print!("{result}");
+        assert_eq!(
+            result.trim(),
+            r#"
+*
+  2
+  {}
+    +
+      1
+      2
 "#
             .trim()
         );
