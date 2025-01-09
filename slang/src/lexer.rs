@@ -5,44 +5,6 @@ use anyhow::bail;
 use crate::error::source_error;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TokenLoc {
-    pub token: Token,
-    pub start: usize,
-    pub end: usize,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Token {
-    Value(Value),
-    Ident(String),
-    Op(Op),
-    OpenParen,
-    CloseParen,
-    OpenBrace,
-    CloseBrace,
-    OpenBracket,
-    CloseBracket,
-    Eof,
-}
-
-impl fmt::Display for Token {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Token::Value(value) => write!(f, "{value}"),
-            Token::Ident(ident) => write!(f, "{ident}"),
-            Token::Op(op) => write!(f, "{op}"),
-            Token::OpenParen => write!(f, "("),
-            Token::CloseParen => write!(f, ")"),
-            Token::OpenBrace => write!(f, "{{"),
-            Token::CloseBrace => write!(f, "}}"),
-            Token::OpenBracket => write!(f, "["),
-            Token::CloseBracket => write!(f, "]"),
-            Token::Eof => write!(f, "EOF"),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Null,
     Bool(bool),
@@ -53,24 +15,55 @@ pub enum Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Null => write!(f, "null"),
-            Value::Bool(value) => write!(f, "{value}"),
-            Value::Int(value) => write!(f, "{value}"),
-            Value::Float(value) => write!(f, "{value}"),
+            Self::Null => write!(f, "null"),
+            Self::Bool(value) => write!(f, "{}", value),
+            Self::Int(value) => write!(f, "{}", value),
+            Self::Float(value) => write!(f, "{}", value),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TokenLoc {
+    pub token: Token,
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Token {
+    Value(Value),
+    Ident(String),
+    Symbol(Symbol),
+    Keyword(Keyword),
+    Eof,
+}
+
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Value(value) => write!(f, "{value}"),
+            Self::Ident(ident) => write!(f, "{ident}"),
+            Self::Symbol(symbol) => write!(f, "{symbol}"),
+            Self::Keyword(keyword) => write!(f, "{keyword}"),
+            Self::Eof => write!(f, "EOF"),
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Op {
+pub enum Symbol {
+    OpenParen,
+    CloseParen,
+    OpenBrace,
+    CloseBrace,
+    OpenBracket,
+    CloseBracket,
     Add,
     Sub,
     Mul,
     Div,
-    And,
-    Or,
-    Xor,
-    Not,
+    Mod,
     Eq,
     Ne,
     Lt,
@@ -78,32 +71,64 @@ pub enum Op {
     Gt,
     Gte,
     Assign,
-    Dot,
-    Arrow,
+    Comma,
     Semi,
+    Dot,
+    Pipe,
+    Arrow,
 }
 
-impl fmt::Display for Op {
+impl fmt::Display for Symbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Op::Add => write!(f, "+"),
-            Op::Sub => write!(f, "-"),
-            Op::Mul => write!(f, "*"),
-            Op::Div => write!(f, "/"),
-            Op::And => write!(f, "and"),
-            Op::Or => write!(f, "or"),
-            Op::Xor => write!(f, "xor"),
-            Op::Not => write!(f, "not"),
-            Op::Eq => write!(f, "=="),
-            Op::Ne => write!(f, "!="),
-            Op::Lt => write!(f, "<"),
-            Op::Lte => write!(f, "<="),
-            Op::Gt => write!(f, ">"),
-            Op::Gte => write!(f, ">="),
-            Op::Assign => write!(f, "="),
-            Op::Dot => write!(f, "."),
-            Op::Arrow => write!(f, "->"),
-            Op::Semi => write!(f, ";"),
+            Self::OpenParen => write!(f, "("),
+            Self::CloseParen => write!(f, ")"),
+            Self::OpenBrace => write!(f, "{{"),
+            Self::CloseBrace => write!(f, "}}"),
+            Self::OpenBracket => write!(f, "["),
+            Self::CloseBracket => write!(f, "]"),
+            Self::Add => write!(f, "+"),
+            Self::Sub => write!(f, "-"),
+            Self::Mul => write!(f, "*"),
+            Self::Div => write!(f, "/"),
+            Self::Mod => write!(f, "%"),
+            Self::Eq => write!(f, "=="),
+            Self::Ne => write!(f, "!="),
+            Self::Lt => write!(f, "<"),
+            Self::Lte => write!(f, "<="),
+            Self::Gt => write!(f, ">"),
+            Self::Gte => write!(f, ">="),
+            Self::Assign => write!(f, "="),
+            Self::Comma => write!(f, ","),
+            Self::Semi => write!(f, ";"),
+            Self::Dot => write!(f, "."),
+            Self::Pipe => write!(f, "|"),
+            Self::Arrow => write!(f, "->"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Keyword {
+    And,
+    Or,
+    Xor,
+    Not,
+    If,
+    Else,
+    While,
+}
+
+impl fmt::Display for Keyword {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::And => write!(f, "and"),
+            Self::Or => write!(f, "or"),
+            Self::Xor => write!(f, "xor"),
+            Self::Not => write!(f, "not"),
+            Self::If => write!(f, "if"),
+            Self::Else => write!(f, "else"),
+            Self::While => write!(f, "while"),
         }
     }
 }
@@ -166,25 +191,18 @@ impl Lexer {
                         ['n', 'u', 'l', 'l'] => Token::Value(Value::Null),
                         ['f', 'a', 'l', 's', 'e'] => Token::Value(Value::Bool(false)),
                         ['t', 'r', 'u', 'e'] => Token::Value(Value::Bool(true)),
-                        // Operator
-                        ['a', 'd', 'd'] => Token::Op(Op::Add),
-                        ['s', 'u', 'b'] => Token::Op(Op::Sub),
-                        ['m', 'u', 'l'] => Token::Op(Op::Mul),
-                        ['d', 'i', 'v'] => Token::Op(Op::Div),
-                        ['a', 'n', 'd'] => Token::Op(Op::And),
-                        ['o', 'r'] => Token::Op(Op::Or),
-                        ['x', 'o', 'r'] => Token::Op(Op::Xor),
-                        ['n', 'o', 't'] => Token::Op(Op::Not),
-                        ['e', 'q'] => Token::Op(Op::Eq),
-                        ['n', 'e'] => Token::Op(Op::Ne),
-                        ['l', 't'] => Token::Op(Op::Lt),
-                        ['l', 't', 'e'] => Token::Op(Op::Lte),
-                        ['g', 't'] => Token::Op(Op::Gt),
-                        ['g', 't', 'e'] => Token::Op(Op::Gte),
+                        // Keyword
+                        ['a', 'n', 'd'] => Token::Keyword(Keyword::And),
+                        ['o', 'r'] => Token::Keyword(Keyword::Or),
+                        ['x', 'o', 'r'] => Token::Keyword(Keyword::Xor),
+                        ['n', 'o', 't'] => Token::Keyword(Keyword::Not),
+                        ['i', 'f'] => Token::Keyword(Keyword::If),
+                        ['e', 'l', 's', 'e'] => Token::Keyword(Keyword::Else),
+                        ['w', 'h', 'i', 'l', 'e'] => Token::Keyword(Keyword::While),
                         // Identifier
                         ident => Token::Ident(ident.iter().collect()),
                     }
-                }
+                },
                 '0'..='9' => {
                     let mut value = c as i64 - '0' as i64;
                     while let Some(c) = input.peek() {
@@ -212,56 +230,59 @@ impl Lexer {
                     } else {
                         Token::Value(Value::Int(value))
                     }
-                }
-                '+' => Token::Op(Op::Add),
+                },
+                '(' => Token::Symbol(Symbol::OpenParen),
+                ')' => Token::Symbol(Symbol::CloseParen),
+                '{' => Token::Symbol(Symbol::OpenBrace),
+                '}' => Token::Symbol(Symbol::CloseBrace),
+                '[' => Token::Symbol(Symbol::OpenBracket),
+                ']' => Token::Symbol(Symbol::CloseBracket),
+                '+' => Token::Symbol(Symbol::Add),
                 '-' => {
                     if input.peek() == Some('>') {
                         input.next();
-                        Token::Op(Op::Arrow)
+                        Token::Symbol(Symbol::Arrow)
                     } else {
-                        Token::Op(Op::Sub)
+                        Token::Symbol(Symbol::Sub)
                     }
-                }
-                '*' => Token::Op(Op::Mul),
-                '/' => Token::Op(Op::Div),
+                },
+                '*' => Token::Symbol(Symbol::Mul),
+                '/' => Token::Symbol(Symbol::Div),
+                '%' => Token::Symbol(Symbol::Mod),
                 '=' => {
                     if input.peek() == Some('=') {
                         input.next();
-                        Token::Op(Op::Eq)
+                        Token::Symbol(Symbol::Eq)
                     } else {
-                        Token::Op(Op::Assign)
+                        Token::Symbol(Symbol::Assign)
                     }
-                }
+                },
                 '!' => {
                     if input.next() != Some('=') {
                         bail!(error(&input_raw, start));
                     }
-                    Token::Op(Op::Ne)
-                }
+                    Token::Symbol(Symbol::Ne)
+                },
                 '<' => {
                     if input.peek() == Some('=') {
                         input.next();
-                        Token::Op(Op::Lte)
+                        Token::Symbol(Symbol::Lte)
                     } else {
-                        Token::Op(Op::Lt)
+                        Token::Symbol(Symbol::Lt)
                     }
-                }
+                },
                 '>' => {
                     if input.peek() == Some('=') {
                         input.next();
-                        Token::Op(Op::Gte)
+                        Token::Symbol(Symbol::Gte)
                     } else {
-                        Token::Op(Op::Gt)
+                        Token::Symbol(Symbol::Gt)
                     }
-                }
-                '.' => Token::Op(Op::Dot),
-                ';' => Token::Op(Op::Semi),
-                '(' => Token::OpenParen,
-                ')' => Token::CloseParen,
-                '{' => Token::OpenBrace,
-                '}' => Token::CloseBrace,
-                '[' => Token::OpenBracket,
-                ']' => Token::CloseBracket,
+                },
+                ',' => Token::Symbol(Symbol::Comma),
+                ';' => Token::Symbol(Symbol::Semi),
+                '.' => Token::Symbol(Symbol::Dot),
+                '|' => Token::Symbol(Symbol::Pipe),
                 _ => bail!(error(&input_raw, start)),
             };
             tokens.push(TokenLoc {
@@ -288,7 +309,7 @@ impl Lexer {
             Some(token) => {
                 self.index += 1;
                 &token.token
-            }
+            },
             None => &self.tokens.last().expect("Lexer past EOF").token,
         }
     }
@@ -315,7 +336,8 @@ impl fmt::Debug for Lexer {
 
 #[cfg(test)]
 mod tests {
-    use super::Op::*;
+    use super::Keyword::*;
+    use super::Symbol::*;
     use super::Token::*;
     use super::Value::*;
     use super::*;
@@ -362,39 +384,28 @@ Unexpected character line 1 column 5
     }
 
     #[test]
-    fn test_arith_op() {
-        test("+ - * /", &[Op(Add), Op(Sub), Op(Mul), Op(Div)]);
+    fn test_arith_symbol() {
+        test("+ - * / %", &[Symbol(Add), Symbol(Sub), Symbol(Mul), Symbol(Div), Symbol(Mod)]);
+    }
+
+    #[test]
+    fn test_rel_symbol() {
+        test("== != < <= > >=", &[Symbol(Eq), Symbol(Ne), Symbol(Lt), Symbol(Lte), Symbol(Gt), Symbol(Gte)]);
+    }
+
+    #[test]
+    fn test_other_symbol() {
+        test("; . | ->", &[Symbol(Semi), Symbol(Dot), Symbol(Pipe), Symbol(Arrow)]);
     }
 
     #[test]
     fn test_logic_op() {
-        test("and or xor not", &[Op(And), Op(Or), Op(Xor), Op(Not)]);
-    }
-
-    #[test]
-    fn test_rel_op() {
-        test(
-            "== != < <= > >=",
-            &[Op(Eq), Op(Ne), Op(Lt), Op(Lte), Op(Gt), Op(Gte)],
-        );
+        test("and or xor not", &[Keyword(And), Keyword(Or), Keyword(Xor), Keyword(Not)]);
     }
 
     #[test]
     fn test_assign() {
-        test(
-            "foo_42 = 1",
-            &[Ident("foo_42".to_owned()), Op(Assign), Value(Int(1))],
-        );
-    }
-
-    #[test]
-    fn test_dot() {
-        test(".", &[Op(Dot)]);
-    }
-
-    #[test]
-    fn test_arrow() {
-        test("->", &[Op(Arrow)]);
+        test("foo_42 = 1", &[Ident("foo_42".to_owned()), Symbol(Assign), Value(Int(1))]);
     }
 
     #[test]
@@ -403,37 +414,30 @@ Unexpected character line 1 column 5
             "40 + (1*1)",
             &[
                 Value(Int(40)),
-                Op(Add),
-                OpenParen,
+                Symbol(Add),
+                Symbol(OpenParen),
                 Value(Int(1)),
-                Op(Mul),
+                Symbol(Mul),
                 Value(Int(1)),
-                CloseParen,
+                Symbol(CloseParen),
             ],
         );
     }
 
     #[test]
     fn test_brace() {
-        test("{1}", &[OpenBrace, Value(Int(1)), CloseBrace]);
+        test("{1}", &[Symbol(OpenBrace), Value(Int(1)), Symbol(CloseBrace)]);
     }
 
     #[test]
     fn test_bracket() {
-        test("[1]", &[OpenBracket, Value(Int(1)), CloseBracket]);
+        test("[1]", &[Symbol(OpenBracket), Value(Int(1)), Symbol(CloseBracket)]);
     }
 
     fn test(input: &str, tokens_kind: &[Token]) {
         let mut tokens = tokens_kind.to_vec();
         tokens.push(Eof);
         let lexer = Lexer::lex(input).unwrap();
-        assert_eq!(
-            lexer
-                .tokens
-                .into_iter()
-                .map(|t| t.token)
-                .collect::<Vec<_>>(),
-            tokens,
-        );
+        assert_eq!(lexer.tokens.into_iter().map(|t| t.token).collect::<Vec<_>>(), tokens,);
     }
 }

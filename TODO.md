@@ -1,25 +1,16 @@
 # Version
 
-## v0.7 Control flow
+## Philosophy
 
-- [ ] Control flow
-  - [ ] If / Else
-  - [ ] While
+- A block is a function without parameters called immediately
+- A program is a block
 
-```slang
-if 1 < 2 {
-  1 + 2
-} else {
-  3 + 4
-}
-```
-
-## v0.6 Advent of Code day 1
+## v0.7 Advent of Code day 1
 
 ```slang
 {
-  input = "1   2\n3   4\n";
-  values = input
+  text = input();
+  values = text
     .split("\n")
     .filter(line -> line != "")
     .map(line ->
@@ -38,31 +29,61 @@ if 1 < 2 {
 }
 ```
 
-## v0.5 Arrays, Strings and Built-in functions
+## v0.6 Build-in functions and infix call
 
-- [ ] New types
-  - [ ] String
-  - [ ] Array
-- [ ] Built-in functions
+- [ ] input()
+- [ ] print()
+- [ ] split(string)
+- [ ] Infix call
 
 ```slang
-a = "hello"
-a + " world"
+{
+  text = input();
+  arr = text.split("\n");
+  print(arr[1])
+}
+```
+
+## v0.5 Arrays, Strings
+
+- [ ] Array
+- [ ] String
+
+```slang
+{
+  arr = [1, 2, 3] + [4, 5, 6];
+  arr[0] + arr[1] + arr[2] + arr[3] + arr[4] + arr[5]
+}
 ```
 
 ```slang
-[1, 2, 3] + [4, 5, 6]
+{
+  a = "hello"
+  a + " world"
+}
 ```
 
-## v0.4 Functions
+## v0.4 Functions and control flow
 
-- [ ] Functions
-  - [ ] Define
-  - [ ] Call
+- [x] Functions
+  - [x] Define
+  - [x] Call
+- [x] Control flow
+  - [x] If
+  - [x] While
 
 ```slang
-add = a b -> a + b
-add 1 2
+{
+    pow = |x y| {
+        acc = 1;
+        while y > 0 {
+            acc = acc * x;
+            y = y - 1;
+        }
+        acc
+    };
+    pow(2 10)
+}
 ```
 
 ## v0.3 Variables and Scope

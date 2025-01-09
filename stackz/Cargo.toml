@@ -1,0 +1,8 @@
+[package]
+name = "stackz"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+derive_more = { version = "1", default-features = false, features = ["deref", "deref_mut", "display"] }
+thiserror = "2"
