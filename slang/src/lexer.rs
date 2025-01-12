@@ -119,6 +119,8 @@ pub enum Keyword {
     If,
     Else,
     While,
+    Yield,
+    Next,
 }
 
 impl fmt::Display for Keyword {
@@ -131,6 +133,8 @@ impl fmt::Display for Keyword {
             Self::If => write!(f, "if"),
             Self::Else => write!(f, "else"),
             Self::While => write!(f, "while"),
+            Self::Yield => write!(f, "yield"),
+            Self::Next => write!(f, "next"),
         }
     }
 }
@@ -201,6 +205,8 @@ impl Lexer {
                         ['i', 'f'] => Token::Keyword(Keyword::If),
                         ['e', 'l', 's', 'e'] => Token::Keyword(Keyword::Else),
                         ['w', 'h', 'i', 'l', 'e'] => Token::Keyword(Keyword::While),
+                        ['y', 'i', 'e', 'l', 'd'] => Token::Keyword(Keyword::Yield),
+                        ['n', 'e', 'x', 't'] => Token::Keyword(Keyword::Next),
                         // Identifier
                         ident => Token::Ident(ident.iter().collect()),
                     }
@@ -236,10 +242,19 @@ impl Lexer {
                 '"' => {
                     let mut value = String::new();
                     while let Some(c) = input.next() {
-                        if c == '"' {
-                            break;
+                        match c {
+                            '"' => break,
+                            '\\' => match input.next() {
+                                Some('n') => value.push('\n'),
+                                Some('r') => value.push('\r'),
+                                Some('t') => value.push('\t'),
+                                Some('\\') => value.push('\\'),
+                                Some('"') => value.push('"'),
+                                Some(_) => bail!(error(&input_raw, start)),
+                                None => bail!(error(&input_raw, start)),
+                            },
+                            c => value.push(c),
                         }
-                        value.push(c);
                     }
                     Token::Value(Value::Str(value))
                 },

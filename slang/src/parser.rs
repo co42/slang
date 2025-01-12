@@ -1,8 +1,6 @@
-use std::fmt;
-
 use anyhow::bail;
 
-use crate::compiler::{BinaryOp, Expr, Func, UnaryOp, Value};
+use crate::compiler::{BinaryOp, Expr, Func, Gen, UnaryOp, Value};
 use crate::error::source_error;
 use crate::lexer::Keyword::*;
 use crate::lexer::Symbol::*;
@@ -19,7 +17,7 @@ pub enum Prefix {
 impl Prefix {
     fn binding_power(&self) -> u8 {
         match self {
-            Self::Plus | Self::Minus => 11,
+            Self::Plus | Self::Minus => 13,
             Self::Not => 14,
         }
     }
@@ -48,12 +46,12 @@ pub enum Infix {
 impl Infix {
     fn binding_power(&self) -> (u8, u8) {
         match self {
-            Self::Dot => (1, 2),
-            Self::Assign => (3, 4),
-            Self::And | Self::Or | Self::Xor => (5, 6),
-            Self::Eq | Self::Ne | Self::Lt | Self::Lte | Self::Gt | Self::Gte => (7, 8),
-            Self::Add | Self::Sub => (9, 10),
-            Self::Mul | Self::Div | Self::Mod => (11, 12),
+            Self::Assign => (1, 2),
+            Self::And | Self::Or | Self::Xor => (3, 4),
+            Self::Eq | Self::Ne | Self::Lt | Self::Lte | Self::Gt | Self::Gte => (5, 6),
+            Self::Add | Self::Sub => (7, 8),
+            Self::Mul | Self::Div | Self::Mod => (9, 10),
+            Self::Dot => (11, 12),
         }
     }
 }
@@ -177,7 +175,12 @@ impl Parser {
                     }
                 }
                 let body = Box::new(Expr::Return(Box::new(Self::expr(lexer, 0)?)));
-                Expr::Value(Value::Func(Func { args, body }))
+                let is_gen = body.find(&|node| matches!(node, Expr::Yield(_))).is_some();
+                if is_gen {
+                    Expr::Value(Value::Gen(Gen(Func { args, body })))
+                } else {
+                    Expr::Value(Value::Func(Func { args, body }))
+                }
             },
             Keyword(If) => {
                 let cond = Box::new(Self::expr(lexer, 0)?);
@@ -209,6 +212,14 @@ impl Parser {
                 }
                 let body = Box::new(Self::expr(lexer, 0)?);
                 Expr::While { cond, body }
+            },
+            Keyword(Yield) => {
+                let expr = Self::expr(lexer, 0)?;
+                Expr::Yield(Box::new(expr))
+            },
+            Keyword(Next) => {
+                let expr = Self::expr(lexer, 0)?;
+                Expr::Next(Box::new(expr))
             },
             _ => {
                 let token = &lexer.tokens[lexer.index - 1];
@@ -343,15 +354,128 @@ impl Parser {
 
         Ok(lhs)
     }
+
+    pub fn pretty_print(&self) {
+        println!("---");
+        let node_count = pretty_print(&self.root, 0);
+        println!("---");
+        println!("{node_count} nodes");
+    }
 }
 
-impl fmt::Debug for Parser {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // writeln!(f, "---")?;
-        // let node_count = self.root.fmt_ident(f, 0)?;
-        // writeln!(f, "---")?;
-        // write!(f, "{node_count} nodes")?;
-        Ok(())
+fn pretty_print(expr: &Expr, indent: usize) -> usize {
+    match expr {
+        Expr::Value(value) => match value {
+            Value::Null => {
+                println!("{:indent$}Null", "", indent = indent);
+                1
+            },
+            Value::Bool(value) => {
+                println!("{:indent$}{value}", "", value = value, indent = indent);
+                1
+            },
+            Value::Int(value) => {
+                println!("{:indent$}{value}", "", value = value, indent = indent);
+                1
+            },
+            Value::Float(value) => {
+                println!("{:indent$}{value}", "", value = value, indent = indent);
+                1
+            },
+            Value::Str(value) => {
+                println!("{:indent$}{value}", "", value = value, indent = indent);
+                1
+            },
+            Value::Array(exprs) => {
+                println!("{:indent$}Array", "", indent = indent);
+                let mut count = 1;
+                for expr in exprs {
+                    count += pretty_print(expr, indent + 2);
+                }
+                return count;
+            },
+            Value::Func(func) => {
+                println!("{:indent$}Func", "", indent = indent);
+                println!("{:indent$}Args", "", indent = indent);
+                for arg in &func.args {
+                    println!("{:indent$}{arg}", "", arg = arg, indent = indent + 2);
+                }
+                return 1 + pretty_print(&func.body, indent + 2);
+            },
+            Value::Gen(gen) => {
+                println!("{:indent$}Gen", "", indent = indent);
+                println!("{:indent$}Args", "", indent = indent);
+                for arg in &gen.args {
+                    println!("{:indent$}{arg}", "", arg = arg, indent = indent + 2);
+                }
+                return 1 + pretty_print(&gen.body, indent + 2);
+            },
+        },
+        Expr::UnaryOp { op, operand } => {
+            println!("{:indent$}{op:?}", "", op = op, indent = indent);
+            1 + pretty_print(operand, indent + 2)
+        },
+        Expr::BinaryOp { op, lhs, rhs } => {
+            println!("{:indent$}{op:?}", "", op = op, indent = indent);
+            1 + pretty_print(lhs, indent + 2) + pretty_print(rhs, indent + 2)
+        },
+        Expr::Block { exprs } => {
+            println!("{:indent$}Block", "", indent = indent);
+            let mut count = 1;
+            for expr in exprs {
+                count += pretty_print(expr, indent + 2);
+            }
+            count
+        },
+        Expr::IfElse {
+            cond,
+            if_body,
+            else_body,
+        } => {
+            let mut count = 1;
+            println!("{:indent$}If", "", indent = indent);
+            count += pretty_print(cond, indent + 2);
+            println!("{:indent$}Then", "", indent = indent);
+            count += pretty_print(if_body, indent + 2);
+            println!("{:indent$}Else", "", indent = indent);
+            count += pretty_print(else_body, indent + 2);
+            count
+        },
+        Expr::While { cond, body } => {
+            println!("{:indent$}While", "", indent = indent);
+            1 + pretty_print(cond, indent + 2) + pretty_print(body, indent + 2)
+        },
+        Expr::Assign { ident, expr } => {
+            println!("{:indent$}Assign {ident}", "", ident = ident, indent = indent);
+            1 + pretty_print(expr, indent + 2)
+        },
+        Expr::Var { ident } => {
+            println!("{:indent$}Var {ident}", "", ident = ident, indent = indent);
+            1
+        },
+        Expr::Return(expr) => {
+            println!("{:indent$}Return", "", indent = indent);
+            1 + pretty_print(expr, indent + 2)
+        },
+        Expr::Yield(expr) => {
+            println!("{:indent$}Yield", "", indent = indent);
+            1 + pretty_print(expr, indent + 2)
+        },
+        Expr::Next(expr) => {
+            println!("{:indent$}Next", "", indent = indent);
+            1 + pretty_print(expr, indent + 2)
+        },
+        Expr::Call { func, args } => {
+            println!("{:indent$}Call", "", indent = indent);
+            println!("{:indent$}Func", "", indent = indent);
+            let mut count = 1;
+            count += pretty_print(func, indent + 2);
+            println!("{:indent$}Args", "", indent = indent);
+            for arg in args {
+                count += pretty_print(arg, indent + 2);
+            }
+            count
+        },
     }
 }
 
@@ -454,5 +578,21 @@ mod tests {
     #[test]
     fn test_while() {
         test("while true {1}", while_(value(true), block([value(1)])));
+    }
+
+    #[test]
+    fn test_yield() {
+        test("yield 1", yield_(value(1)));
+    }
+
+    #[test]
+    fn test_gen() {
+        test(
+            "{gen = |a| {yield a}; gen(1)}",
+            block([
+                assign("gen", gen(["a"], ret(block([yield_(var("a"))])))),
+                call(var("gen"), [value(1)]),
+            ]),
+        );
     }
 }

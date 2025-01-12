@@ -114,6 +114,8 @@ impl PartialEq for Value {
     }
 }
 
+impl Eq for Value {}
+
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
@@ -125,6 +127,12 @@ impl PartialOrd for Value {
             (Value::Array(lhs), Value::Array(rhs)) => lhs.partial_cmp(rhs),
             _ => None,
         }
+    }
+}
+
+impl Ord for Value {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).expect("Invalid comparison")
     }
 }
 
@@ -547,7 +555,7 @@ impl Task {
     pub fn poll(&mut self, context: &Context) -> Result<Flow> {
         loop {
             let ins = self.func.program.get(self.ip)?;
-            // println!("{:p} {ins:?} ip={} frame={} stack={}", self, self.ip, self.frames.len(), self.stack.len());
+            // println!("{:p} {ins:?} ip={} var={} stack={}", self, self.ip, self.variables.len(), self.stack.len());
             match ins {
                 Ins::Push(value) => {
                     self.stack.push(value.clone());
@@ -788,7 +796,7 @@ impl Task {
                     self.func = self.funcs.pop().fatal("Return: Function stack")?;
                     self.ip = self.ips.pop().fatal("Return: Instruction pointer stack")?;
                     let left_frame = self.frames.pop().fatal("Return: Frame stack")?;
-                    self.stack.truncate(left_frame as usize);
+                    self.variables.truncate(left_frame as usize);
                     self.stack.push(value);
                 },
                 Ins::Continue => {

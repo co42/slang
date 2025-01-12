@@ -1,33 +1,8 @@
-# Version
+# Slang
 
-## Philosophy
+Toy language interpreted with a stack based VM
 
-- A block is a function without parameters called immediately
-- A program is a block
-
-## v0.6 Advent of Code day 1
-
-```slang
-{
-  text = input();
-  values = text
-    .split("\n")
-    .filter(line -> line != "")
-    .map(line ->
-      line
-        .split("   ")
-        .map(value -> value.parse_int())
-    )
-    .unzip()
-  ls = values.0.sort();
-  rs = values.1.sort();
-  print(
-    zip(ls, rs)
-      .map(r -> abs(r.0 - r.1))
-      .sum()
-  )
-}
-```
+## v0.6 Generators and Advent of Code day 1
 
 ## v0.5 Built-in functions, infix call, arrays, strings
 

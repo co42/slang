@@ -80,7 +80,7 @@ pub struct Func {
 }
 
 #[derive(Clone, Debug, Deref, PartialEq)]
-pub struct Gen(Func);
+pub struct Gen(pub Func);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UnaryOp {
@@ -324,6 +324,65 @@ impl Expr {
             },
         }
         Ok(())
+    }
+
+    pub fn find(&self, filter: &impl Fn(&Expr) -> bool) -> Option<&Self> {
+        if filter(self) {
+            return Some(self);
+        }
+        match self {
+            Expr::Value(_) => None,
+            Expr::UnaryOp { op: _, operand } => operand.find(filter),
+            Expr::BinaryOp { op: _, lhs, rhs } => {
+                if let Some(expr) = lhs.find(filter) {
+                    return Some(expr);
+                }
+                rhs.find(filter)
+            },
+            Expr::Block { exprs } => {
+                for expr in exprs {
+                    if let Some(expr) = expr.find(filter) {
+                        return Some(expr);
+                    }
+                }
+                None
+            },
+            Expr::IfElse {
+                cond,
+                if_body,
+                else_body,
+            } => {
+                if let Some(expr) = cond.find(filter) {
+                    return Some(expr);
+                }
+                if let Some(expr) = if_body.find(filter) {
+                    return Some(expr);
+                }
+                else_body.find(filter)
+            },
+            Expr::While { cond, body } => {
+                if let Some(expr) = cond.find(filter) {
+                    return Some(expr);
+                }
+                body.find(filter)
+            },
+            Expr::Assign { ident: _, expr } => expr.find(filter),
+            Expr::Var { ident: _ } => None,
+            Expr::Return(expr) => expr.find(filter),
+            Expr::Yield(expr) => expr.find(filter),
+            Expr::Next(expr) => expr.find(filter),
+            Expr::Call { func, args } => {
+                if let Some(expr) = func.find(filter) {
+                    return Some(expr);
+                }
+                for arg in args {
+                    if let Some(expr) = arg.find(filter) {
+                        return Some(expr);
+                    }
+                }
+                None
+            },
+        }
     }
 }
 

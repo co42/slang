@@ -16,66 +16,63 @@ mod error;
 mod lexer;
 mod parser;
 
-#[derive(clap::Parser)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(clap::Subcommand)]
-enum Command {
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum Output {
     /// Print tokens output by the lexer
     Lex,
     /// Print AST output by the parser
     Parse,
     /// Print program output by the compiler
     Compile,
-    /// Run program from stdin and print the returned value
-    Run {
-        #[clap(short, long)]
-        input: Option<String>,
-    },
+}
+
+#[derive(clap::Parser)]
+struct Cli {
+    input: String,
+    #[clap(short, long)]
+    output: Option<Output>,
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    match &cli.command {
-        Command::Lex => {
-            let lexer = lex(&read(None)?)?;
-            println!("{lexer:?}");
-        },
+    let input = read(&cli.input);
 
-        Command::Parse => {
-            let parser = parse(lex(&read(None)?)?)?;
-            println!("{parser:?}");
-        },
+    let lexer = lex(&input?)?;
+    if let Some(Output::Lex) = cli.output {
+        println!("{lexer:?}");
+        return Ok(());
+    }
 
-        Command::Compile => {
-            let compiler = compile(parse(lex(&read(None)?)?)?)?;
-            println!("{compiler:?}");
-        },
+    let parser = parse(lexer)?;
+    if let Some(Output::Parse) = cli.output {
+        parser.pretty_print();
+        return Ok(());
+    }
 
-        Command::Run { input } => {
-            let exit_value = run(compile(parse(lex(&read(input.as_deref())?)?)?)?)?;
-            match exit_value {
-                Value::Null => {},
-                value => println!("{value}"),
-            }
-        },
+    let compiler = compile(parser)?;
+    if let Some(Output::Compile) = cli.output {
+        println!("{compiler:?}");
+        return Ok(());
+    }
+
+    let exit_value = run(compiler)?;
+    match exit_value {
+        Value::Null => {},
+        value => println!("{value}"),
     }
 
     Ok(())
 }
 
-fn read(input: Option<&str>) -> anyhow::Result<String> {
+fn read(input: &str) -> anyhow::Result<String> {
     match input {
-        Some(input) => fs::read_to_string(input).context("Read input error"),
-        None => {
+        "-" => {
             let mut text = String::new();
             stdin().read_to_string(&mut text).context("Read input error")?;
             Ok(text)
         },
+        input => fs::read_to_string(input).context("Read input error"),
     }
 }
 
