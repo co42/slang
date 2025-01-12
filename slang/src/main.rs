@@ -1,13 +1,16 @@
+use std::fs;
 use std::io::{stdin, Read};
 
-use anyhow::Context;
+use anyhow::Context as _;
+use builtin::builtins;
 use clap::Parser as _;
-use stackz::vm::{Flow, Func, Task, Value};
+use stackz::vm::{Context, Flow, Func, Task, Value};
 
 use crate::compiler::Compiler;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 
+mod builtin;
 mod compiler;
 mod error;
 mod lexer;
@@ -28,7 +31,10 @@ enum Command {
     /// Print program output by the compiler
     Compile,
     /// Run program from stdin and print the returned value
-    Run,
+    Run {
+        #[clap(short, long)]
+        input: Option<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -36,33 +42,41 @@ fn main() -> anyhow::Result<()> {
 
     match &cli.command {
         Command::Lex => {
-            let lexer = lex(&input()?)?;
+            let lexer = lex(&read(None)?)?;
             println!("{lexer:?}");
         },
 
         Command::Parse => {
-            let parser = parse(lex(&input()?)?)?;
+            let parser = parse(lex(&read(None)?)?)?;
             println!("{parser:?}");
         },
 
         Command::Compile => {
-            let compiler = compile(parse(lex(&input()?)?)?)?;
+            let compiler = compile(parse(lex(&read(None)?)?)?)?;
             println!("{compiler:?}");
         },
 
-        Command::Run => {
-            let exit_value = run(compile(parse(lex(&input()?)?)?)?)?;
-            println!("Exit: {exit_value}");
+        Command::Run { input } => {
+            let exit_value = run(compile(parse(lex(&read(input.as_deref())?)?)?)?)?;
+            match exit_value {
+                Value::Null => {},
+                value => println!("{value}"),
+            }
         },
     }
 
     Ok(())
 }
 
-fn input() -> anyhow::Result<String> {
-    let mut input = String::new();
-    stdin().read_to_string(&mut input).context("Read input error")?;
-    Ok(input)
+fn read(input: Option<&str>) -> anyhow::Result<String> {
+    match input {
+        Some(input) => fs::read_to_string(input).context("Read input error"),
+        None => {
+            let mut text = String::new();
+            stdin().read_to_string(&mut text).context("Read input error")?;
+            Ok(text)
+        },
+    }
 }
 
 fn lex(input: &str) -> anyhow::Result<Lexer> {
@@ -78,7 +92,8 @@ fn compile(parser: Parser) -> anyhow::Result<Func> {
 }
 
 fn run(main: Func) -> anyhow::Result<Value> {
-    match Task::new(main).poll().context("Interpreter error")? {
+    let context = Context::new(builtins().into_iter().map(|(_, builtin)| builtin).collect());
+    match Task::new(main).poll(&context).context("Interpreter error")? {
         cont @ Flow::Continue(_) => Err(anyhow::anyhow!("Unexpected continue in main: {cont:?}")),
         Flow::Break(value) => Ok(value),
     }

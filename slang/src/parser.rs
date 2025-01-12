@@ -42,11 +42,13 @@ pub enum Infix {
     Gt,
     Gte,
     Assign,
+    Dot,
 }
 
 impl Infix {
     fn binding_power(&self) -> (u8, u8) {
         match self {
+            Self::Dot => (1, 2),
             Self::Assign => (3, 4),
             Self::And | Self::Or | Self::Xor => (5, 6),
             Self::Eq | Self::Ne | Self::Lt | Self::Lte | Self::Gt | Self::Gte => (7, 8),
@@ -82,7 +84,24 @@ impl Parser {
                 lexer::Value::Bool(value) => Value::Bool(*value),
                 lexer::Value::Int(value) => Value::Int(*value),
                 lexer::Value::Float(value) => Value::Float(*value),
+                lexer::Value::Str(value) => Value::Str(value.clone()),
             }),
+            Symbol(OpenBracket) => {
+                let mut exprs = Vec::new();
+                loop {
+                    match lexer.peek() {
+                        Symbol(CloseBracket) => {
+                            lexer.next();
+                            break;
+                        },
+                        Symbol(Comma) => {
+                            lexer.next();
+                        },
+                        _ => exprs.push(Self::expr(lexer, 0)?),
+                    }
+                }
+                Expr::Value(Value::Array(exprs))
+            },
             Ident(ident) => {
                 let ident = ident.clone();
                 if lexer.peek() == &Symbol(OpenParen) {
@@ -214,6 +233,7 @@ impl Parser {
                 Symbol(Gt) => Infix::Gt,
                 Symbol(Gte) => Infix::Gte,
                 Symbol(Assign) => Infix::Assign,
+                Symbol(Dot) => Infix::Dot,
                 _ => break,
             };
 
@@ -306,6 +326,18 @@ impl Parser {
                         bail!(error(&lexer.input, &lexer.tokens[lexer.index], "Expected variable"))
                     }
                 },
+                Infix::Dot => {
+                    let (func, mut args) = match rhs {
+                        Expr::Call { func, args } => (func, args),
+                        expr => bail!(error(
+                            &lexer.input,
+                            &lexer.tokens[lexer.index],
+                            format!("Expected call got {expr:?}"),
+                        )),
+                    };
+                    args.insert(0, lhs);
+                    Expr::Call { func, args }
+                },
             };
         }
 
@@ -336,6 +368,11 @@ mod tests {
         let lexer = Lexer::lex(input).expect("Failed to lex");
         let parser = Parser::parse(lexer).expect("Failed to parse");
         assert_eq!(parser.root, expected);
+    }
+
+    #[test]
+    fn test_array() {
+        test("[1, 2, 3]", value(vec![value(1), value(2), value(3)]));
     }
 
     #[test]
@@ -392,8 +429,19 @@ mod tests {
         test(
             "{add = |a b| a + b; add(2 3)}",
             block([
-                assign("add", func(["a", "b"], bop(Add, var("a"), var("b")))),
+                assign("add", func(["a", "b"], ret(bop(Add, var("a"), var("b"))))),
                 call(var("add"), [value(2), value(3)]),
+            ]),
+        );
+    }
+
+    #[test]
+    fn test_infix_call() {
+        test(
+            "{add = |a b| a + b;2.0.add(3)}",
+            block([
+                assign("add", func(["a", "b"], ret(bop(Add, var("a"), var("b"))))),
+                call(var("add"), [value(2.0), value(3)]),
             ]),
         );
     }

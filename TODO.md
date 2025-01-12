@@ -5,7 +5,7 @@
 - A block is a function without parameters called immediately
 - A program is a block
 
-## v0.7 Advent of Code day 1
+## v0.6 Advent of Code day 1
 
 ```slang
 {
@@ -29,30 +29,21 @@
 }
 ```
 
-## v0.6 Build-in functions and infix call
+## v0.5 Built-in functions, infix call, arrays, strings
 
-- [ ] input()
-- [ ] print()
-- [ ] split(string)
-- [ ] Infix call
-
-```slang
-{
-  text = input();
-  arr = text.split("\n");
-  print(arr[1])
-}
-```
-
-## v0.5 Arrays, Strings
-
-- [ ] Array
-- [ ] String
+- [x] Array
+- [x] String
+- [x] Built-in functions
+  - [x] input()
+  - [x] print()
+  - [x] get(array, index)
+  - [x] split(string)
+- [x] Infix call
 
 ```slang
 {
   arr = [1, 2, 3] + [4, 5, 6];
-  arr[0] + arr[1] + arr[2] + arr[3] + arr[4] + arr[5]
+  get(arr, 0) + get(arr, 4)
 }
 ```
 
@@ -60,6 +51,14 @@
 {
   a = "hello"
   a + " world"
+}
+```
+
+```slang
+{
+  text = input();
+  arr = text.split("\n");
+  print(arr[1])
 }
 ```
 

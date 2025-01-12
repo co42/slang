@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use anyhow::Context as _;
 use derive_more::Deref;
 use stackz::vm::{self, Ins, Program};
+
+use crate::builtin::builtins;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -10,8 +13,10 @@ pub enum Value {
     Bool(bool),
     Int(i64),
     Float(f64),
+    Str(String),
     Func(Func),
     Gen(Gen),
+    Array(Vec<Expr>),
 }
 
 impl From<()> for Value {
@@ -38,9 +43,33 @@ impl From<f64> for Value {
     }
 }
 
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Value::Str(value)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::Str(value.to_string())
+    }
+}
+
 impl From<Func> for Value {
     fn from(value: Func) -> Self {
         Value::Func(value)
+    }
+}
+
+impl From<Gen> for Value {
+    fn from(value: Gen) -> Self {
+        Value::Gen(value)
+    }
+}
+
+impl From<Vec<Expr>> for Value {
+    fn from(value: Vec<Expr>) -> Self {
+        Value::Array(value)
     }
 }
 
@@ -121,33 +150,55 @@ impl Expr {
     pub fn compile(&self, context: &mut Context, program: &mut Program) -> anyhow::Result<()> {
         match self {
             Self::Value(value) => {
-                let vm_value = match value {
-                    Value::Null => vm::Value::Null,
-                    Value::Bool(value) => vm::Value::Bool(*value),
-                    Value::Int(value) => vm::Value::Int(*value),
-                    Value::Float(value) => vm::Value::Float(*value),
+                match value {
+                    Value::Null => {
+                        program.push(Ins::Push(vm::Value::Null));
+                    },
+                    Value::Bool(value) => {
+                        program.push(Ins::Push(vm::Value::Bool(*value)));
+                    },
+                    Value::Int(value) => {
+                        program.push(Ins::Push(vm::Value::Int(*value)));
+                    },
+                    Value::Float(value) => {
+                        program.push(Ins::Push(vm::Value::Float(*value)));
+                    },
+                    Value::Str(value) => {
+                        program.push(Ins::Push(vm::Value::Str(value.clone())));
+                    },
                     Value::Func(func) => {
-                        let mut program = Program::new();
                         context.enter();
                         for arg in &func.args {
                             context.decl(arg);
                         }
-                        func.body.compile(context, &mut program)?;
+                        let func = {
+                            let mut program = Program::new();
+                            func.body.compile(context, &mut program)?;
+                            vm::Value::Func(vm::Func::new(func.args.len() as u32, Rc::new(program)))
+                        };
                         context.leave();
-                        vm::Value::Func(vm::Func::new(func.args.len() as u32, Rc::new(program)))
+                        program.push(Ins::Push(func));
                     },
                     Value::Gen(gen) => {
-                        let mut program = Program::new();
                         context.enter();
                         for arg in &gen.args {
                             context.decl(arg);
                         }
-                        gen.body.compile(context, &mut program)?;
+                        let gen = {
+                            let mut program = Program::new();
+                            gen.body.compile(context, &mut program)?;
+                            vm::Value::Gen(vm::Gen(vm::Func::new(gen.args.len() as u32, Rc::new(program))))
+                        };
                         context.leave();
-                        vm::Value::Gen(vm::Gen(vm::Func::new(gen.args.len() as u32, Rc::new(program))))
+                        program.push(Ins::Push(gen));
+                    },
+                    Value::Array(exprs) => {
+                        for expr in exprs {
+                            expr.compile(context, program)?;
+                        }
+                        program.push(Ins::Array(exprs.len() as u32));
                     },
                 };
-                program.push(Ins::Push(vm_value));
             },
             Self::UnaryOp { op, operand } => {
                 operand.compile(context, program)?;
@@ -260,8 +311,16 @@ impl Expr {
                 for arg in args {
                     arg.compile(context, program)?;
                 }
-                func.compile(context, program)?;
-                program.push(Ins::Call);
+                let builtin = match func.as_ref() {
+                    Self::Var { ident } => context.builtins.get(ident.as_str()).copied(),
+                    _ => None,
+                };
+                if let Some(index) = builtin {
+                    program.push(Ins::Builtin(index));
+                } else {
+                    func.compile(context, program)?;
+                    program.push(Ins::Call);
+                }
             },
         }
         Ok(())
@@ -269,6 +328,7 @@ impl Expr {
 }
 
 pub struct Context {
+    builtins: HashMap<&'static str, u32>,
     variables: Vec<String>,
     frames: Vec<usize>,
 }
@@ -276,29 +336,30 @@ pub struct Context {
 impl Context {
     fn new() -> Self {
         Self {
+            builtins: builtins()
+                .into_iter()
+                .enumerate()
+                .map(|(index, (name, _))| (name, index as u32))
+                .collect(),
             variables: Vec::new(),
             frames: vec![0],
         }
     }
 
     fn enter(&mut self) {
-        println!("enter");
         self.frames.push(self.variables.len());
     }
 
     fn leave(&mut self) {
-        println!("leave");
         let frame = self.frames.pop().unwrap();
         self.variables.truncate(frame);
     }
 
     fn decl(&mut self, ident: &str) {
-        println!("decl {ident}");
         self.variables.push(ident.to_string());
     }
 
     fn get(&self, ident: &str) -> Option<u32> {
-        println!("get {ident}");
         self.variables
             .iter()
             .rev()
@@ -423,7 +484,8 @@ mod tests {
     fn test(root: Expr, expected: impl Into<vm::Value>) {
         let func = Compiler::compile(&root).expect("Compile error");
         println!("{:?}", func.program);
-        let exit_value = Task::new(func).poll().expect("Task poll error");
+        let context = vm::Context::new(vec![]);
+        let exit_value = Task::new(func).poll(&context).expect("Task poll error");
         assert_eq!(exit_value, Flow::Break(expected.into()));
     }
 

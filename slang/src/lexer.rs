@@ -10,6 +10,7 @@ pub enum Value {
     Bool(bool),
     Int(i64),
     Float(f64),
+    Str(String),
 }
 
 impl fmt::Display for Value {
@@ -19,6 +20,7 @@ impl fmt::Display for Value {
             Self::Bool(value) => write!(f, "{}", value),
             Self::Int(value) => write!(f, "{}", value),
             Self::Float(value) => write!(f, "{}", value),
+            Self::Str(value) => write!(f, "{}", value),
         }
     }
 }
@@ -230,6 +232,16 @@ impl Lexer {
                     } else {
                         Token::Value(Value::Int(value))
                     }
+                },
+                '"' => {
+                    let mut value = String::new();
+                    while let Some(c) = input.next() {
+                        if c == '"' {
+                            break;
+                        }
+                        value.push(c);
+                    }
+                    Token::Value(Value::Str(value))
                 },
                 '(' => Token::Symbol(Symbol::OpenParen),
                 ')' => Token::Symbol(Symbol::CloseParen),

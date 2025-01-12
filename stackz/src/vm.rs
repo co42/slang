@@ -12,37 +12,46 @@ pub enum Value {
     Bool(bool),
     Int(i64),
     Float(f64),
+    Str(String),
     Func(Func),
     Gen(Gen),
     Task(Rc<RefCell<Task>>),
+    Array(Vec<Value>),
 }
 
 impl Value {
-    pub fn as_null(self) -> crate::Result<()> {
+    pub fn as_null(&self) -> crate::Result<()> {
         match self {
             Value::Null => Ok(()),
             _ => Err(crate::Error::fatal(format!("Expected 'null' got '{self}'"))),
         }
     }
 
-    pub fn as_bool(self) -> crate::Result<bool> {
+    pub fn as_bool(&self) -> crate::Result<bool> {
         match self {
-            Value::Bool(value) => Ok(value),
+            Value::Bool(value) => Ok(*value),
             _ => Err(crate::Error::fatal(format!("Expected 'Bool' got '{self}'"))),
         }
     }
 
-    pub fn as_int(self) -> crate::Result<i64> {
+    pub fn as_int(&self) -> crate::Result<i64> {
         match self {
-            Value::Int(value) => Ok(value),
+            Value::Int(value) => Ok(*value),
             _ => Err(crate::Error::fatal(format!("Expected 'Integer' got '{self}'"))),
         }
     }
 
-    pub fn as_float(self) -> crate::Result<f64> {
+    pub fn as_float(&self) -> crate::Result<f64> {
         match self {
-            Value::Float(value) => Ok(value),
+            Value::Float(value) => Ok(*value),
             _ => Err(crate::Error::fatal(format!("Expected 'Float' got '{self}'"))),
+        }
+    }
+
+    pub fn as_str(self) -> crate::Result<String> {
+        match self {
+            Value::Str(value) => Ok(value),
+            _ => Err(crate::Error::fatal(format!("Expected 'String' got '{self}'"))),
         }
     }
 
@@ -66,6 +75,13 @@ impl Value {
             _ => Err(crate::Error::fatal(format!("Expected 'Task' got '{self}'"))),
         }
     }
+
+    pub fn as_array(self) -> crate::Result<Vec<Value>> {
+        match self {
+            Value::Array(value) => Ok(value),
+            _ => Err(crate::Error::fatal(format!("Expected 'Array' got '{self}'"))),
+        }
+    }
 }
 
 impl Display for Value {
@@ -75,9 +91,11 @@ impl Display for Value {
             Value::Bool(value) => write!(f, "{value}"),
             Value::Int(value) => write!(f, "{value}"),
             Value::Float(value) => write!(f, "{value}"),
+            Value::Str(value) => write!(f, "{value:?}"),
             Value::Func(value) => write!(f, "{value:?}"),
             Value::Gen(value) => write!(f, "{value:?}"),
             Value::Task(_) => write!(f, "Task"),
+            Value::Array(value) => write!(f, "{value:?}"),
         }
     }
 }
@@ -89,6 +107,8 @@ impl PartialEq for Value {
             (Value::Bool(lhs), Value::Bool(rhs)) => lhs == rhs,
             (Value::Int(lhs), Value::Int(rhs)) => lhs == rhs,
             (Value::Float(lhs), Value::Float(rhs)) => lhs == rhs,
+            (Value::Str(lhs), Value::Str(rhs)) => lhs == rhs,
+            (Value::Array(lhs), Value::Array(rhs)) => lhs == rhs,
             _ => false,
         }
     }
@@ -101,6 +121,8 @@ impl PartialOrd for Value {
             (Value::Bool(lhs), Value::Bool(rhs)) => lhs.partial_cmp(rhs),
             (Value::Int(lhs), Value::Int(rhs)) => lhs.partial_cmp(rhs),
             (Value::Float(lhs), Value::Float(rhs)) => lhs.partial_cmp(rhs),
+            (Value::Str(lhs), Value::Str(rhs)) => lhs.partial_cmp(rhs),
+            (Value::Array(lhs), Value::Array(rhs)) => lhs.partial_cmp(rhs),
             _ => None,
         }
     }
@@ -130,6 +152,18 @@ impl From<f64> for Value {
     }
 }
 
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Value::Str(value)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::Str(value.to_owned())
+    }
+}
+
 impl From<Func> for Value {
     fn from(value: Func) -> Self {
         Value::Func(value)
@@ -145,6 +179,12 @@ impl From<Gen> for Value {
 impl From<Task> for Value {
     fn from(value: Task) -> Self {
         Value::Task(Rc::new(RefCell::new(value)))
+    }
+}
+
+impl From<Vec<Value>> for Value {
+    fn from(value: Vec<Value>) -> Self {
+        Value::Array(value)
     }
 }
 
@@ -182,6 +222,8 @@ pub enum Ins {
     Pop,
     Load(u32),
     Store(Option<u32>),
+    // Array
+    Array(u32),
     // Arithmetic operators
     Add,
     Sub,
@@ -214,6 +256,8 @@ pub enum Ins {
     Continue,
     Break,
     Next,
+    // Builtin
+    Builtin(u32),
 }
 
 impl Display for Ins {
@@ -292,6 +336,11 @@ impl ProgramBuilder {
 
     pub fn store(mut self, index: impl Into<Option<u32>>) -> Self {
         self.ins.push(Ins::Store(index.into()));
+        self
+    }
+
+    pub fn array(mut self, size: u32) -> Self {
+        self.ins.push(Ins::Array(size));
         self
     }
 
@@ -419,6 +468,11 @@ impl ProgramBuilder {
         self.ins.push(Ins::Next);
         self
     }
+
+    pub fn builtin(mut self, index: u32) -> Self {
+        self.ins.push(Ins::Builtin(index));
+        self
+    }
 }
 
 #[derive(Debug, Deref, DerefMut)]
@@ -435,6 +489,30 @@ impl<T> Stack<T> {
 
     pub fn get(&self, index: usize) -> Result<&T> {
         self.0.get(index).fatal("Invalid stack index")
+    }
+}
+
+pub struct Builtin {
+    pub arity: u32,
+    pub func: Box<dyn Fn(Vec<Value>) -> Value>,
+}
+
+impl Builtin {
+    pub fn new(arity: u32, func: impl Fn(Vec<Value>) -> Value + 'static) -> Self {
+        Self {
+            arity,
+            func: Box::new(func),
+        }
+    }
+}
+
+pub struct Context {
+    builtins: Vec<Builtin>,
+}
+
+impl Context {
+    pub fn new(builtins: Vec<Builtin>) -> Self {
+        Self { builtins }
     }
 }
 
@@ -466,10 +544,10 @@ impl Task {
         }
     }
 
-    pub fn poll(&mut self) -> Result<Flow> {
+    pub fn poll(&mut self, context: &Context) -> Result<Flow> {
         loop {
             let ins = self.func.program.get(self.ip)?;
-            println!("{:p} {ins:?} ip={} frame={} stack={}", self, self.ip, self.frames.len(), self.stack.len());
+            // println!("{:p} {ins:?} ip={} frame={} stack={}", self, self.ip, self.frames.len(), self.stack.len());
             match ins {
                 Ins::Push(value) => {
                     self.stack.push(value.clone());
@@ -495,6 +573,15 @@ impl Task {
                     }
                     self.ip += 1;
                 },
+                Ins::Array(size) => {
+                    let mut array = Vec::with_capacity(*size as usize);
+                    for _ in 0..*size {
+                        array.push(self.stack.pop().fatal(ins)?);
+                    }
+                    array.reverse();
+                    self.stack.push(Value::Array(array));
+                    self.ip += 1;
+                },
                 Ins::Add => {
                     let rhs = self.stack.pop().fatal(ins)?;
                     let lhs = self.stack.pop().fatal(ins)?;
@@ -503,6 +590,8 @@ impl Task {
                         (Value::Float(lhs), Value::Float(rhs)) => Value::Float(lhs + rhs),
                         (Value::Int(lhs), Value::Float(rhs)) => Value::Float(lhs as f64 + rhs),
                         (Value::Float(lhs), Value::Int(rhs)) => Value::Float(lhs + rhs as f64),
+                        (Value::Str(lhs), Value::Str(rhs)) => Value::Str(lhs + &rhs),
+                        (Value::Array(lhs), Value::Array(rhs)) => Value::Array([lhs, rhs].concat()),
                         (lhs, rhs) => return Err(Error::fatal(format!("{ins}: Invalid operands '{lhs}' and '{rhs}'"))),
                     };
                     self.stack.push(result);
@@ -714,7 +803,7 @@ impl Task {
                 },
                 Ins::Next => {
                     let task = self.stack.pop()?.as_task()?;
-                    let flow = task.borrow_mut().poll().fatal(ins)?;
+                    let flow = task.borrow_mut().poll(context).fatal(ins)?;
                     match flow {
                         Flow::Continue(value) => {
                             self.stack.push(value);
@@ -723,6 +812,14 @@ impl Task {
                             self.stack.push(value);
                         },
                     }
+                    self.ip += 1;
+                },
+                Ins::Builtin(index) => {
+                    let builtin = context.builtins.get(*index as usize).fatal(ins)?;
+                    let args_index = self.stack.len() - builtin.arity as usize;
+                    let args = self.stack.split_off(args_index);
+                    let result = (builtin.func)(args);
+                    self.stack.push(result);
                     self.ip += 1;
                 },
             }
@@ -738,14 +835,19 @@ mod tests {
 
     #[test]
     fn test_mem_size() {
-        assert_eq!(std::mem::size_of::<Value>(), 24);
-        assert_eq!(std::mem::size_of::<Ins>(), 24);
+        assert_eq!(std::mem::size_of::<Value>(), 32);
+        assert_eq!(std::mem::size_of::<Ins>(), 32);
         assert_eq!(std::mem::size_of::<Task>(), 144);
     }
 
     fn test(prog: ProgramBuilder, expected: impl Into<Value>) {
+        let context = Context::new(vec![]);
+        test_with_context(context, prog, expected);
+    }
+
+    fn test_with_context(context: Context, prog: ProgramBuilder, expected: impl Into<Value>) {
         let main = prog.ret().func(0);
-        let exit_value = Task::new(main).poll().expect("Task poll error");
+        let exit_value = Task::new(main).poll(&context).expect("Task poll error");
         assert_eq!(exit_value, Break(expected.into()));
     }
 
@@ -771,8 +873,18 @@ mod tests {
     }
 
     #[test]
+    fn test_array() {
+        test(prog().push(42).push(21).array(2), vec![42.into(), 21.into()]);
+    }
+
+    #[test]
     fn test_add() {
         test(prog().push(40).push(2).add(), 42);
+        test(prog().push("hello").push(" world").add(), "hello world");
+        test(
+            prog().push(vec![1.into(), 2.into()]).push(vec![3.into(), 4.into()]).add(),
+            vec![1.into(), 2.into(), 3.into(), 4.into()],
+        );
     }
 
     #[test]
@@ -925,5 +1037,14 @@ mod tests {
                 .add(),
             84,
         );
+    }
+
+    #[test]
+    fn test_builtin() {
+        let builtins = vec![Builtin::new(2, |args| {
+            (args[0].as_int().unwrap() + args[1].as_int().unwrap()).into()
+        })];
+        let context = Context::new(builtins);
+        test_with_context(context, prog().push(40).push(2).builtin(0), 42);
     }
 }
